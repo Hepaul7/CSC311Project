@@ -107,7 +107,7 @@ def main():
             curr_max = accuracies[k]
             k_star = k
 
-    final_acc = knn_impute_by_user(sparse_matrix, test_data, k_star)
+    final_acc = knn_impute_by_item(sparse_matrix, test_data, k_star)
     print("k* : ", k_star)
     print("acc k* : ", final_acc)
 
