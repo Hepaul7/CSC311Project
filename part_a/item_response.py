@@ -60,10 +60,10 @@ def update_theta_beta(data, lr, theta, beta):
     question_id = np.array(data['question_id'])
     is_correct = np.array(data['is_correct'])
     for i in range(len(theta)):
-        theta[i] -= lr * np.sum(is_correct[user_id == i]
+        theta[i] += lr * np.sum(is_correct[user_id == i]
                                 - sigmoid(theta[i] - beta[question_id[user_id == i]]))
     for i in range(len(beta)):
-        beta[i] -= lr * np.sum(is_correct[question_id == i] -
+        beta[i] += lr * np.sum(is_correct[question_id == i] -
                                sigmoid(theta[user_id[question_id == i]] - beta[i]))
 
     #####################################################################
@@ -90,11 +90,11 @@ def irt(data, val_data, lr, iterations):
     num_questions = len(set(data["question_id"]))
     theta = np.random.randn(num_users) * 0.01
     beta = np.random.randn(num_questions) * 0.01
-
+    # theta = np.ones(num_users)
+    # beta = np.ones(num_questions)
     val_acc_lst = []
 
     for i in range(iterations):
-        print(theta, beta)
         neg_lld = neg_log_likelihood(data, theta=theta, beta=beta)
         score = evaluate(data=val_data, theta=theta, beta=beta)
         val_acc_lst.append(score)
@@ -135,32 +135,40 @@ def main():
     # Tune learning rate and number of iterations. With the implemented #
     # code, report the validation and test accuracy.                    #
     #####################################################################
-    lrs = [x / 10 for x in range(1, 11)]
-    iterations = [50, 100, 500, 1000, 2000]
-    irt(train_data, val_data, 0.1, 1000)
+    lrs = [x / 10000 for x in range(1, 3)]
+    iterations = [50]
 
-    # acc = {}
-    # for lr in lrs:
-    #     for iteration in iterations:
-    #         irt(train_data, val_data, lr, iteration)
+    acc = {}
+    for lr in lrs:
+        for iteration in iterations:
+            acc_iter = irt(train_data, val_data, lr, iteration)[-1][-1]
+            acc[(lr, iteration)] = acc_iter
+            print(acc)
+    max_acc_so_far = 0
+    max_params = (lrs[0], iterations[0])
+    for i in acc:
+        if acc[i] > max_acc_so_far:
+            max_acc_so_far = acc[i]
+            max_params = i[0], i[1]
+    print(max_params)
 
-    students = {}
-    for i in range(len(train_data['user_id'])):
-        if train_data['user_id'][i] not in students:
-            students[train_data['user_id'][i]] = 1
-        else:
-            students[train_data['user_id'][i]] += 1
-    print(students)
-    print(len(students))
-
-    questions = {}
-    for i in range(len(train_data['question_id'])):
-        if train_data['question_id'][i] not in questions:
-            questions[train_data['question_id'][i]] = 1
-        else:
-            questions[train_data['question_id'][i]] += 1
-    print(questions)
-    print(len(questions))
+    # students = {}
+    # for i in range(len(train_data['user_id'])):
+    #     if train_data['user_id'][i] not in students:
+    #         students[train_data['user_id'][i]] = 1
+    #     else:
+    #         students[train_data['user_id'][i]] += 1
+    # print(students)
+    # print(len(students))
+    #
+    # questions = {}
+    # for i in range(len(train_data['question_id'])):
+    #     if train_data['question_id'][i] not in questions:
+    #         questions[train_data['question_id'][i]] = 1
+    #     else:
+    #         questions[train_data['question_id'][i]] += 1
+    # print(questions)
+    # print(len(questions))
     #####################################################################
     #                       END OF YOUR CODE                            #
     #####################################################################
