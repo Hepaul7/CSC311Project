@@ -161,13 +161,14 @@ def main():
                 best_lr = lr
                 best_iterations = iterations
 
-    print("Best validation accuracy: {:.2f}%".format(best_val_acc * 100))
-
     # Train the IRT model with the best combination of hyperparameters.
     theta, beta, _, tllk, vllk = irt(train_data, val_data, best_lr, best_iterations)
 
     # Evaluate the model on the test set.
     test_acc = evaluate(test_data, theta, beta)
+    print("Best validation accuracy: {:.2f}%".format(best_val_acc * 100))
+    print("Best iteration value: {:d}".format(best_iterations))
+    print("Best learning rate: {:.2f}".format(best_lr))
     print("Test accuracy: {:.2f}%".format(test_acc * 100))
     # Plot the training and validation log-likelihoods as a function of iteration for the best hyperparameters.
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 8))
@@ -194,7 +195,27 @@ def main():
     # TODO:                                                             #
     # Implement part (d)                                                #
     #####################################################################
-    pass
+
+    # Select three questions
+    j1, j2, j3 = 1, 100, 500
+
+    # Define theta range
+    theta_range = np.linspace(-4, 4, 100)
+
+    # Calculate the probability of the correct response for each question and theta value
+    prob_j1 = sigmoid(theta_range - beta[j1])
+    prob_j2 = sigmoid(theta_range - beta[j2])
+    prob_j3 = sigmoid(theta_range - beta[j3])
+
+    # Plot the curves
+    plt.plot(theta_range, prob_j1, label='Question {}'.format(j1))
+    plt.plot(theta_range, prob_j2, label='Question {}'.format(j2))
+    plt.plot(theta_range, prob_j3, label='Question {}'.format(j3))
+
+    plt.xlabel('Theta')
+    plt.ylabel('P(Correct)')
+    plt.legend()
+    plt.show()
     #####################################################################
     #                       END OF YOUR CODE                            #
     #####################################################################
