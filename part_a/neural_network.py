@@ -96,7 +96,6 @@ def train(model, lr, lamb, train_data, zero_train_data, valid_data, num_epoch):
     :return: None
     """
     # TODO: Add a regularizer to the cost function.
-    # reg = (lamb / 2) * torch.norm(model.get_weight_norm())
 
     # Tell PyTorch you are training the model.
     model.train()
@@ -105,6 +104,8 @@ def train(model, lr, lamb, train_data, zero_train_data, valid_data, num_epoch):
     optimizer = optim.SGD(model.parameters(), lr=lr)
     num_student = train_data.shape[0]
 
+    acc_lst = []  # TODO: Delete later
+    epoch_lst = []  # TODO: Delete later
     for epoch in range(0, num_epoch):
         train_loss = 0.
 
@@ -119,8 +120,8 @@ def train(model, lr, lamb, train_data, zero_train_data, valid_data, num_epoch):
             nan_mask = np.isnan(train_data[user_id].unsqueeze(0).numpy())
             target[0][nan_mask] = output[0][nan_mask]
 
-            # loss = torch.sum((output - target) ** 2.) + reg
-            loss = torch.sum((output - target) ** 2.)
+            loss = torch.sum((output - target) ** 2.) + (lamb / 2) * torch.norm(
+                model.get_weight_norm())
             loss.backward()
 
             train_loss += loss.item()
@@ -129,6 +130,9 @@ def train(model, lr, lamb, train_data, zero_train_data, valid_data, num_epoch):
         valid_acc = evaluate(model, zero_train_data, valid_data)
         print("Epoch: {} \tTraining Cost: {:.6f}\t "
               "Valid Acc: {}".format(epoch, train_loss, valid_acc))
+        acc_lst.append(valid_acc)  # TODO: Delete later
+        epoch_lst.append(epoch)  # TODO: Delete later
+    return acc_lst, epoch_lst  # TODO: Delete later
     #####################################################################
     #                       END OF YOUR CODE                            #
     #####################################################################
@@ -160,6 +164,21 @@ def evaluate(model, train_data, valid_data):
     return correct / float(total)
 
 
+def get_best_epoch(model, lr, train_matrix, zero_train_matrix, valid_data, ub_epochs) -> int:
+    """ Find the best epoch for the model. """
+    valid_acc, epoch_list = train(model, lr, 0, train_matrix, zero_train_matrix, valid_data,
+                                  ub_epochs)
+
+    plt.plot(epoch_list, valid_acc)
+    # plt.legend()
+    plt.show()
+
+    for i in range(len(valid_acc)):
+        if valid_acc[i] == max(valid_acc):
+            return epoch_list[i]
+    raise ValueError("No best epoch found.")
+
+
 def main():
     zero_train_matrix, train_matrix, valid_data, test_data = load_data()
 
@@ -169,40 +188,67 @@ def main():
     # validation set.                                                   #
     #####################################################################
     # Set model hyperparameters.
-    k = [10, 50, 100, 200, 500]
-    lr = [0.1, 0.01, 0.001, 0.0001, 0.00001]
-    num_epoch = [10, 20, 30, 40, 50]
-    lamb = [0.1, 0.01, 0.001, 0.0001, 0.00001]
-    acc = {}
-    for i in k:
-        for j in lr:
-            for l in num_epoch:
-                for m in lamb:
-                    model = AutoEncoder(train_matrix.shape[1], i)
-                    train(model, j, m, train_matrix, zero_train_matrix,
-                          valid_data, l)
-                    acc[(i, j, l, m)] = evaluate(model, zero_train_matrix, valid_data)
+    k_list = [10, 50, 100, 200, 500]
+    lr_list = [0.1, 0.01, 0.001, 0.0001, 0.00001]
+    lr_list.reverse()
 
-    max_acc = acc[max(acc, key=acc.get)]
-    print("Best k: {}, Best lr: {}, Best num_epoch: {}, Best lamb: {}, Best acc: {}".format(max(acc, key=acc.get), max_acc))
+    max_epochs = 100
 
-    max_hyper = max(acc, key=acc.get)
-    model = AutoEncoder(train_matrix.shape[1], max_hyper[0])
-    epochs = []
-    train_mse = []
-    test_mse = []
-    for epoch in range(0, max_hyper[2]):
-        train(model, max_hyper[1], max_hyper[3], train_matrix, zero_train_matrix, valid_data, max_hyper[2])
-        train_mse.append(evaluate(model, zero_train_matrix, valid_data))
-        epochs.append(epoch)
-        test_mse.append(evaluate(model, zero_train_matrix, test_data))
+    best_k = k_list[0]
+    best_lr = lr_list[0]
+    best_epoch = 0
+    max_accuracy = 0
+    for k in k_list:
+        for lr in lr_list:
+            # no regularization term
+            train_model = AutoEncoder(train_matrix.shape[1], k)
+            curr_best_epoch = get_best_epoch(train_model, lr, train_matrix, zero_train_matrix,
+                                             valid_data,
+                                             max_epochs)
 
-    plt.plot(epochs, train_mse, label='Train')
-    plt.plot(epochs, test_mse, label='Test')
-    plt.xlabel('Epochs')
-    plt.ylabel('Accuracy')
-    plt.legend()
-    plt.show()
+            test_model = AutoEncoder(train_matrix.shape[1], k)
+            train(test_model, lr, 0, train_matrix, zero_train_matrix, valid_data, curr_best_epoch)
+            test_acc = evaluate(test_model, zero_train_matrix, test_data)
+            if test_acc > max_accuracy:
+                max_accuracy = test_acc
+                best_lr = lr
+                best_k = k
+                best_epoch = curr_best_epoch
+
+    print(
+        f"Best k: {best_k}, Best lr: {best_lr}, Best num_epoch: {best_epoch}, Best acc: {max_accuracy}")
+
+    # lamb = [0.1, 0.01, 0.001, 0.0001, 0.00001]
+    # max_lambda = {}
+    # for m in lamb:
+    #     model = AutoEncoder(train_matrix.shape[1], max_acc[0])
+    #     train(model, max_acc[1], m, train_matrix, zero_train_matrix,
+    #           valid_data, max_acc[2])
+    #     max_lambda[m] = evaluate(model, zero_train_matrix, valid_data)
+    #
+    # print("Best k: {}, Best lr: {}, Best num_epoch: {}, Best lamb: {}, Best acc: {}".format(
+    #     max(acc, key=acc.get), max_acc))
+    #
+    # max_hyper = max(acc, key=acc.get)
+    # model = AutoEncoder(train_matrix.shape[1], max_hyper[0])
+    # epochs = []
+    # train_mse = []
+    # test_mse = []
+    # for epoch in range(0, max_hyper[2]):
+    #     train(model, max_hyper[1], max_hyper[3], train_matrix, zero_train_matrix, valid_data,
+    #           max_hyper[2])
+    #     train_mse.append(evaluate(model, zero_train_matrix, valid_data))
+    #     epochs.append(epoch)
+    #     test_mse.append(evaluate(model, zero_train_matrix, test_data))
+    #
+    # plt.plot(epochs, train_mse, label='Train')
+    # plt.plot(epochs, test_mse, label='Test')
+    # plt.xlabel('Epochs')
+    # plt.ylabel('Accuracy')
+    # plt.legend()
+    # plt.show()
+
+    # TODO: choose lambda
     #####################################################################
     #                       END OF YOUR CODE                            #
     #####################################################################
