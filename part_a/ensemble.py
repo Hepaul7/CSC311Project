@@ -95,11 +95,11 @@ def ensemble_nn():
     zero_1, train_1 = bootstrap_nn()
     zero_2, train_2 = bootstrap_nn()
     zero_3, train_3 = bootstrap_nn()
+    #
+    # nn_1, _ = train(zero_1, train_1, valid_data, test_data, 0.0001, 50)
+    # nn_2, _ = train(zero_2, train_2, valid_data, test_data, 0.0001, 50)
+    # nn_3, _ = train(zero_3, train_3, valid_data, test_data, 0.0001, 50)
 
-    nn_1, _ = train(zero_1, train_1, valid_data, test_data, 0.0001, 50)
-    nn_2, _ = train(zero_2, train_2, valid_data, test_data, 0.0001, 50)
-    nn_3, _ = train(zero_3, train_3, valid_data, test_data, 0.0001, 50)
-
-    return (nn_1 + nn_2 + nn_3) / 3
+    # return (nn_1 + nn_2 + nn_3) / 3
 
 
