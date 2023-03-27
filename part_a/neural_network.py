@@ -189,10 +189,10 @@ def main():
     #####################################################################
     # Set model hyperparameters.
     k_list = [10, 50, 100, 200, 500]
-    lr_list = [0.1, 0.01, 0.001, 0.0001, 0.00001]
+    lr_list = [0.1, 0.01, 0.001]
     lr_list.reverse()
 
-    max_epochs = 100
+    max_epochs = 200
 
     best_k = k_list[0]
     best_lr = lr_list[0]
@@ -200,6 +200,7 @@ def main():
     max_accuracy = 0
     for k in k_list:
         for lr in lr_list:
+            print(f"learning rate: {lr}, k: {k}")
             # no regularization term
             train_model = AutoEncoder(train_matrix.shape[1], k)
             curr_best_epoch = get_best_epoch(train_model, lr, train_matrix, zero_train_matrix,
@@ -216,39 +217,30 @@ def main():
                 best_epoch = curr_best_epoch
 
     print(
-        f"Best k: {best_k}, Best lr: {best_lr}, Best num_epoch: {best_epoch}, Best acc: {max_accuracy}")
+        f"Best k: {best_k} \
+        , Best lr: {best_lr}, Best num_epoch: {best_epoch}, Best acc: {max_accuracy}")
 
-    # lamb = [0.1, 0.01, 0.001, 0.0001, 0.00001]
-    # max_lambda = {}
-    # for m in lamb:
-    #     model = AutoEncoder(train_matrix.shape[1], max_acc[0])
-    #     train(model, max_acc[1], m, train_matrix, zero_train_matrix,
-    #           valid_data, max_acc[2])
-    #     max_lambda[m] = evaluate(model, zero_train_matrix, valid_data)
-    #
-    # print("Best k: {}, Best lr: {}, Best num_epoch: {}, Best lamb: {}, Best acc: {}".format(
-    #     max(acc, key=acc.get), max_acc))
-    #
-    # max_hyper = max(acc, key=acc.get)
-    # model = AutoEncoder(train_matrix.shape[1], max_hyper[0])
-    # epochs = []
-    # train_mse = []
-    # test_mse = []
-    # for epoch in range(0, max_hyper[2]):
-    #     train(model, max_hyper[1], max_hyper[3], train_matrix, zero_train_matrix, valid_data,
-    #           max_hyper[2])
-    #     train_mse.append(evaluate(model, zero_train_matrix, valid_data))
-    #     epochs.append(epoch)
-    #     test_mse.append(evaluate(model, zero_train_matrix, test_data))
-    #
-    # plt.plot(epochs, train_mse, label='Train')
-    # plt.plot(epochs, test_mse, label='Test')
-    # plt.xlabel('Epochs')
-    # plt.ylabel('Accuracy')
-    # plt.legend()
-    # plt.show()
+    # here, we plot the best_k and how training and validation objectives changes as a function
+    # of epoch
+    best_model = AutoEncoder(train_matrix.shape[1], best_k)
+    valid_acc, epoch_list = \
+        train(best_model, best_lr, 0, train_matrix, zero_train_matrix, valid_data, best_epoch)
+    plt.plot(epoch_list, valid_acc)
+    plt.xlabel("Epoch")
+    plt.ylabel("Validation Accuracy")
+    plt.show()
 
-    # TODO: choose lambda
+    # with the best k, we can try out different lambdas
+    lamb = [0.1, 0.01, 0.001, 0.0001]
+    max_accuracy = 0
+    best_lambda = None
+    for m in lamb:
+        valid_acc, best_epoch = \
+            train(best_model, best_lr, m, train_matrix, zero_train_matrix, valid_data, best_epoch)
+        if valid_acc > max_accuracy:
+            max_accuracy = valid_acc
+            best_lambda = m
+    print(f"Best lambda: {best_lambda}, Best acc: {max_accuracy}")
     #####################################################################
     #                       END OF YOUR CODE                            #
     #####################################################################
