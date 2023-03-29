@@ -14,7 +14,6 @@ import matplotlib.pyplot as plt
 
 def load_data(base_path="../data"):
     """ Load the data in PyTorch Tensor.
-
     :return: (zero_train_matrix, train_data, valid_data, test_data)
         WHERE:
         zero_train_matrix: 2D sparse matrix where missing entries are
@@ -42,7 +41,6 @@ def load_data(base_path="../data"):
 class AutoEncoder(nn.Module):
     def __init__(self, num_question, k=100):
         """ Initialize a class AutoEncoder.
-
         :param num_question: int
         :param k: int
         """
@@ -54,7 +52,6 @@ class AutoEncoder(nn.Module):
 
     def get_weight_norm(self):
         """ Return ||W^1||^2 + ||W^2||^2.
-
         :return: float
         """
         g_w_norm = torch.norm(self.g.weight, 2) ** 2
@@ -63,7 +60,6 @@ class AutoEncoder(nn.Module):
 
     def forward(self, inputs):
         """ Return a forward pass given inputs.
-
         :param inputs: user vector.
         :return: user vector.
         """
@@ -85,7 +81,6 @@ class AutoEncoder(nn.Module):
 def train(model, lr, lamb, train_data, zero_train_data, valid_data, num_epoch):
     """ Train the neural network, where the objective also includes
     a regularizer.
-
     :param model: Module
     :param lr: float
     :param lamb: float
@@ -140,7 +135,6 @@ def train(model, lr, lamb, train_data, zero_train_data, valid_data, num_epoch):
 
 def evaluate(model, train_data, valid_data):
     """ Evaluate the valid_data on the current model.
-
     :param model: Module
     :param train_data: 2D FloatTensor
     :param valid_data: A dictionary {user_id: list,
@@ -164,18 +158,18 @@ def evaluate(model, train_data, valid_data):
     return correct / float(total)
 
 
-def get_best_epoch(model, lr, train_matrix, zero_train_matrix, valid_data, ub_epochs) -> int:
+def get_best_epoch(model, lr, train_matrix, zero_train_matrix, valid_data, ub_epochs, m):
     """ Find the best epoch for the model. """
-    valid_acc, epoch_list = train(model, lr, 0, train_matrix, zero_train_matrix, valid_data,
+    valid_acc, epoch_list = train(model, lr, m, train_matrix, zero_train_matrix, valid_data,
                                   ub_epochs)
 
-    plt.plot(epoch_list, valid_acc)
-    # plt.legend()
-    plt.show()
+    # plt.plot(epoch_list, valid_acc)
+    # # plt.legend()
+    # plt.show()
 
     for i in range(len(valid_acc)):
         if valid_acc[i] == max(valid_acc):
-            return epoch_list[i]
+            return epoch_list[i], valid_acc[i]
     raise ValueError("No best epoch found.")
 
 
@@ -188,11 +182,14 @@ def main():
     # validation set.                                                   #
     #####################################################################
     # Set model hyperparameters.
-    k_list = [10, 50, 100, 200, 500]
-    lr_list = [0.1, 0.01, 0.001]
+    # k_list = [10, 50, 100, 200, 500]
+    # lr_list = [0.1, 0.01, 0.001, 0.0001, 0.00001]
+    k_list = [50]
+    lr_list = [0.01]
+
     lr_list.reverse()
 
-    max_epochs = 200
+    max_epochs = 50
 
     best_k = k_list[0]
     best_lr = lr_list[0]
@@ -200,16 +197,15 @@ def main():
     max_accuracy = 0
     for k in k_list:
         for lr in lr_list:
-            print(f"learning rate: {lr}, k: {k}")
             # no regularization term
             train_model = AutoEncoder(train_matrix.shape[1], k)
-            curr_best_epoch = get_best_epoch(train_model, lr, train_matrix, zero_train_matrix,
-                                             valid_data,
-                                             max_epochs)
+            curr_best_epoch, test_acc = get_best_epoch(train_model, lr,
+                                                       train_matrix, zero_train_matrix,
+                                                       valid_data, max_epochs, 0)
 
-            test_model = AutoEncoder(train_matrix.shape[1], k)
-            train(test_model, lr, 0, train_matrix, zero_train_matrix, valid_data, curr_best_epoch)
-            test_acc = evaluate(test_model, zero_train_matrix, test_data)
+            # test_model = AutoEncoder(train_matrix.shape[1], k)
+            # train(test_model, lr, 0, train_matrix, zero_train_matrix, valid_data, curr_best_epoch)
+            # test_acc = evaluate(test_model, zero_train_matrix, test_data)
             if test_acc > max_accuracy:
                 max_accuracy = test_acc
                 best_lr = lr
@@ -217,30 +213,38 @@ def main():
                 best_epoch = curr_best_epoch
 
     print(
-        f"Best k: {best_k} \
-        , Best lr: {best_lr}, Best num_epoch: {best_epoch}, Best acc: {max_accuracy}")
+        f"Best k: {best_k}, Best lr: {best_lr}, Best num_epoch: {best_epoch}, Best acc: {max_accuracy}")
 
-    # here, we plot the best_k and how training and validation objectives changes as a function
-    # of epoch
-    best_model = AutoEncoder(train_matrix.shape[1], best_k)
-    valid_acc, epoch_list = \
-        train(best_model, best_lr, 0, train_matrix, zero_train_matrix, valid_data, best_epoch)
-    plt.plot(epoch_list, valid_acc)
-    plt.xlabel("Epoch")
-    plt.ylabel("Validation Accuracy")
+    train_model = AutoEncoder(train_matrix.shape[1], best_k)
+    acc, _ = train(train_model, best_lr, 0, train_matrix, zero_train_matrix, valid_data, best_epoch)
+    valid_acc = evaluate(train_model, zero_train_matrix, valid_data)
+    test_acc = evaluate(train_model, zero_train_matrix, test_data)
+    print(f"Final Validation Acc: {valid_acc}, Test acc: {test_acc}")
+    plt.plot([x for x in range(best_epoch)], acc, label='Train')
+    plt.xlabel('Epochs')
+    plt.ylabel('Accuracy')
+    plt.legend()
     plt.show()
 
-    # with the best k, we can try out different lambdas
-    lamb = [0.1, 0.01, 0.001, 0.0001]
+    # lamb = [0.1, 0.01, 0.001, 0.0001, 0.00001]
+    lamb = [0.01]
     max_accuracy = 0
-    best_lambda = None
+    max_lamb = 0
     for m in lamb:
-        valid_acc, best_epoch = \
-            train(best_model, best_lr, m, train_matrix, zero_train_matrix, valid_data, best_epoch)
-        if valid_acc > max_accuracy:
-            max_accuracy = valid_acc
-            best_lambda = m
-    print(f"Best lambda: {best_lambda}, Best acc: {max_accuracy}")
+        model = AutoEncoder(train_matrix.shape[1], best_k)
+        _, test_acc = get_best_epoch(model, best_lr, train_matrix, zero_train_matrix,
+                                     valid_data, best_epoch, m)
+        if test_acc > max_accuracy:
+            max_accuracy = test_acc
+            max_lamb = m
+
+    print('Best lambda: ', max_lamb)
+
+    model = AutoEncoder(train_matrix.shape[1], best_k)
+    train(model, best_lr, max_lamb, train_matrix, zero_train_matrix, valid_data, best_epoch)
+    valid_acc = evaluate(model, zero_train_matrix, valid_data)
+    test_acc = evaluate(model, zero_train_matrix, test_data)
+    print(f"best_lambda: {max_lamb}, Valid acc: {valid_acc}, Test acc: {test_acc}")
     #####################################################################
     #                       END OF YOUR CODE                            #
     #####################################################################

@@ -2,7 +2,7 @@
 from utils import *
 from knn import knn_impute_by_user
 from item_response import irt
-from neural_network import train, load_data
+from neural_network import train, load_data, AutoEncoder
 from matplotlib import pyplot as plt
 
 import numpy as np
@@ -14,15 +14,16 @@ def sigmoid(x):
     return np.exp(x) / (1 + np.exp(x))
 
 
-def bootstrap_knn(matrix):
+def bootstrap_knn(matrix, valid_data):
     """ Bootstrap the matrix.
 
+    :param valid_data:
     :param matrix: 2D numpy array
     :return: 2D numpy array
     """
-    n = len(matrix['user_id'])
+    n = len(matrix)
     idx = np.random.choice(n, int(np.sqrt(n)), replace=True)
-    return matrix[idx, :]
+    return matrix[idx], {k: [v[i] for i in idx] for k, v in valid_data.items()}
 
 
 def ensemble_knn():
@@ -33,14 +34,14 @@ def ensemble_knn():
     val_data = load_valid_csv("../data")
     # test_data = load_public_test_csv("../data")
 
-    bag_1 = bootstrap_knn(sparse_matrix)
-    bag_2 = bootstrap_knn(sparse_matrix)
-    bag_3 = bootstrap_knn(sparse_matrix)
+    bag_1, val_1 = bootstrap_knn(sparse_matrix, val_data)
+    bag_2, val_2 = bootstrap_knn(sparse_matrix, val_data)
+    bag_3, val_3 = bootstrap_knn(sparse_matrix, val_data)
 
     k_opt = 11  # from knn.py, note: valid_acc = 0.607112616426757
-    knn_1 = knn_impute_by_user(bag_1, val_data, k_opt)
-    knn_2 = knn_impute_by_user(bag_2, val_data, k_opt)
-    knn_3 = knn_impute_by_user(bag_3, val_data, k_opt)
+    knn_1 = knn_impute_by_user(bag_1, val_1, k_opt)
+    knn_2 = knn_impute_by_user(bag_2, val_2, k_opt)
+    knn_3 = knn_impute_by_user(bag_3, val_3, k_opt)
 
     return (knn_1 + knn_2 + knn_3) / 3
 
@@ -95,11 +96,25 @@ def ensemble_nn():
     zero_1, train_1 = bootstrap_nn()
     zero_2, train_2 = bootstrap_nn()
     zero_3, train_3 = bootstrap_nn()
-    #
-    # nn_1, _ = train(zero_1, train_1, valid_data, test_data, 0.0001, 50)
-    # nn_2, _ = train(zero_2, train_2, valid_data, test_data, 0.0001, 50)
-    # nn_3, _ = train(zero_3, train_3, valid_data, test_data, 0.0001, 50)
 
-    # return (nn_1 + nn_2 + nn_3) / 3
+    train_model_1 = AutoEncoder(train_1.shape[1], 50)
+    train_model_2 = AutoEncoder(train_2.shape[1], 50)
+    train_model_3 = AutoEncoder(train_3.shape[1], 50)
+
+    nn_1, _ = train(train_model_1, 0.01, 0.001, train_1, zero_1, valid_data, 47)
+    nn_2, _ = train(train_model_2, 0.01, 0.001, train_2, zero_2, valid_data, 47)
+    nn_3, _ = train(train_model_3, 0.01, 0.001, train_3, zero_3, valid_data, 47)
+
+    return (nn_1 + nn_2 + nn_3) / 3
 
 
+def main():
+    knn_ensemble = ensemble_knn()
+    irt_ensemble = ensemble_irt()
+    nn_ensemble = ensemble_nn()
+    final = (knn_ensemble + irt_ensemble + nn_ensemble) / 3
+    print(f"final ensemble acc: {final}")
+
+
+if __name__ == "__main__":
+    main()
