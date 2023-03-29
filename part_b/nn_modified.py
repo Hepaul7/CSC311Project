@@ -43,8 +43,8 @@ class AutoEncoder(nn.Module):
 
     def __init__(self, num_questions: int, k: int) -> None:
         """ Initialize the AutoEncoder class.
-        :param num_questions:
-        :param k:
+        :param num_questions: number of questions (1774 for this dataset)
+        :param k: latent dimension
         """
         super(AutoEncoder, self).__init__()
         # here are the linear functions for the autoencoder
@@ -71,6 +71,27 @@ class AutoEncoder(nn.Module):
         x = self.h(x)
         x = F.sigmoid(x)
         return x
+
+
+def compute_ce_loss(train_data, target, output, user_id) -> torch.Tensor:
+    """ Compute the cross entropy loss for the given inputs.
+
+    :param user_id:
+    :param output:
+    :param target:
+    :param train_data:
+    :return: float
+    """
+    nan_mask = np.isnan(train_data[user_id].unsqueeze(0).numpy())
+    target[0][nan_mask] = output[0][nan_mask]
+
+    # Create a boolean mask of valid entries.
+    valid_mask = ~torch.isnan(train_data[user_id])
+
+    # Compute the binary cross entropy only for valid entries.
+    ce = F.binary_cross_entropy(output[0][valid_mask], target[0][valid_mask],
+                                reduction='sum')
+    return ce
 
 
 def evaluate(model, train_data, valid_data):
@@ -112,16 +133,12 @@ def train(model, lr, lamb, train_data, zero_train_data, valid_data, num_epoch):
     :param num_epoch: int
     :return: None
     """
-    # Tell PyTorch you are training the model.
-    model.train()
-
-    # Define optimizers and loss function.
+    model.train()  # Tell PyTorch you are training the model.
+    # Define optimizers
     optimizer = optim.SGD(model.parameters(), lr=lr)
-
     num_student = train_data.shape[0]
+    acc_lst, epoch_lst = [], []
 
-    acc_lst = []
-    epoch_lst = []
     for epoch in range(0, num_epoch):
         train_loss = 0.
 
@@ -132,16 +149,8 @@ def train(model, lr, lamb, train_data, zero_train_data, valid_data, num_epoch):
             optimizer.zero_grad()
             output = model(inputs)
 
-            # Mask the target to only compute the gradient of valid entries.
-            nan_mask = np.isnan(train_data[user_id].unsqueeze(0).numpy())
-            target[0][nan_mask] = output[0][nan_mask]
-
-            # Create a boolean mask of valid entries.
-            valid_mask = ~torch.isnan(train_data[user_id])
-
-            # Compute the binary cross entropy only for valid entries.
-            ce = F.binary_cross_entropy(output[0][valid_mask], target[0][valid_mask],
-                                        reduction='sum')
+            # compute cross entropy loss
+            ce = compute_ce_loss(train_data, target, output, user_id)
             loss = ce + (lamb / 2) * torch.norm(model.get_weight_norm())
             loss.backward()
 
