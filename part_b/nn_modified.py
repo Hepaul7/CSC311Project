@@ -39,7 +39,6 @@ def load_data(base_path="../data"):
 class AutoEncoder(nn.Module):
     """
     AutoEncoder class for neural network.
-
     """
 
     def __init__(self, num_questions: int, k: int) -> None:
@@ -47,16 +46,14 @@ class AutoEncoder(nn.Module):
         :param num_questions:
         :param k:
         """
-
         super(AutoEncoder, self).__init__()
-
         # here are the linear functions for the autoencoder
         self.g = nn.Linear(num_questions, k)  # W1 \in R^{n_questions x k}
         self.h = nn.Linear(k, num_questions)  # W2 \in R^{k x n_questions}
+        self.k = k
 
     def get_weight_norm(self) -> float:
         """ Return ||W^1||^2 + ||W^2||^2.
-
         :return: float
         """
         g_w_norm = torch.norm(self.g.weight, 2) ** 2
@@ -74,9 +71,6 @@ class AutoEncoder(nn.Module):
         x = self.h(x)
         x = F.sigmoid(x)
         return x
-
-    def get_weight(self):
-        return self.g.weight
 
 
 def evaluate(model, train_data, valid_data):
@@ -126,8 +120,8 @@ def train(model, lr, lamb, train_data, zero_train_data, valid_data, num_epoch):
 
     num_student = train_data.shape[0]
 
-    acc_lst = []  # TODO: Delete later
-    epoch_lst = []  # TODO: Delete later
+    acc_lst = []
+    epoch_lst = []
     for epoch in range(0, num_epoch):
         train_loss = 0.
 
@@ -142,20 +136,13 @@ def train(model, lr, lamb, train_data, zero_train_data, valid_data, num_epoch):
             nan_mask = np.isnan(train_data[user_id].unsqueeze(0).numpy())
             target[0][nan_mask] = output[0][nan_mask]
 
-            # ce_so_far = 0
-            # for i in range(output.shape[1]):
-            #     if not np.isnan(train_data[user_id][i]):
-            #         ce_so_far += F.binary_cross_entropy(output[0][i], target[0][i])
-
             # Create a boolean mask of valid entries.
             valid_mask = ~torch.isnan(train_data[user_id])
 
             # Compute the binary cross entropy only for valid entries.
             ce = F.binary_cross_entropy(output[0][valid_mask], target[0][valid_mask],
                                         reduction='sum')
-
-            loss = ce + (lamb / 2) * torch.norm(
-                model.get_weight_norm())
+            loss = ce + (lamb / 2) * torch.norm(model.get_weight_norm())
             loss.backward()
 
             train_loss += loss.item()
@@ -164,15 +151,97 @@ def train(model, lr, lamb, train_data, zero_train_data, valid_data, num_epoch):
         valid_acc = evaluate(model, zero_train_data, valid_data)
         print("Epoch: {} \tTraining Cost: {:.6f}\t "
               "Valid Acc: {}".format(epoch, train_loss, valid_acc))
-        acc_lst.append(valid_acc)  # TODO: Delete later
-        epoch_lst.append(epoch)  # TODO: Delete later
-    return acc_lst, epoch_lst  # TODO: Delete later
+        acc_lst.append(valid_acc)
+        epoch_lst.append(epoch)
+    return acc_lst, epoch_lst
+
+
+def get_best_epoch(model, lr, train_matrix, zero_train_matrix, valid_data, ub_epochs) -> int:
+    """ Find the best epoch for the model. """
+    valid_acc, epoch_list = train(model, lr, 0, train_matrix, zero_train_matrix, valid_data,
+                                  ub_epochs)
+
+    plt.plot(epoch_list, valid_acc)
+    plt.xlabel("Epoch")
+    plt.ylabel("Validation Accuracy")
+    plt.title(f"lr {lr} k {model.k}")
+    plt.show()
+
+    for i in range(len(valid_acc)):
+        if valid_acc[i] == max(valid_acc):
+            return epoch_list[i]
+    raise ValueError("No best epoch found.")
+
+
+def tune_hyperparameters(max_epochs: int, k_list: list, lr_list: list) -> \
+        tuple[int, int, float, float]:
+    """ Tune the hyperparameters for the neural network.
+
+    :return: tuple of (int, int, float, float)
+    """
+    zero_train_matrix, train_matrix, valid_data, test_data = load_data()
+    best_k, best_lr, best_epoch, max_accuracy = 0, 0, 0, 0
+    for k in k_list:
+        for lr in lr_list:
+            print(f"learning rate: {lr}, k: {k}")
+            # no regularization term
+            train_model = AutoEncoder(train_matrix.shape[1], k)
+            curr_best_epoch = get_best_epoch(train_model, lr, train_matrix, zero_train_matrix,
+                                             valid_data,
+                                             max_epochs)
+
+            test_model = AutoEncoder(train_matrix.shape[1], k)
+            train(test_model, lr, 0, train_matrix, zero_train_matrix, valid_data, curr_best_epoch)
+            test_acc = evaluate(test_model, zero_train_matrix, test_data)
+            if test_acc > max_accuracy:
+                max_accuracy = test_acc
+                best_lr = lr
+                best_k = k
+                best_epoch = curr_best_epoch
+
+    print(
+        f"Best k: {best_k} \
+        , Best lr: {best_lr}, Best num_epoch: {best_epoch}, Best acc: {max_accuracy}")
+
+    # here, we plot the best_k and how training and validation objectives changes as a function
+    # of epoch
+    best_model = AutoEncoder(train_matrix.shape[1], best_k)
+    valid_acc, epoch_list = \
+        train(best_model, best_lr, 0, train_matrix, zero_train_matrix, valid_data, best_epoch)
+    plt.plot(epoch_list, valid_acc)
+    plt.xlabel("Epoch")
+    plt.ylabel("Validation Accuracy")
+    plt.show()
+
+    return best_k, best_lr, best_epoch, max_accuracy
+
+
+def tune_lambda(max_epochs: int, k: int, lr: float, lamb_list: list) -> float:
+    """ Tune the lambda for the neural network.
+
+    :return: float
+    """
+    zero_train_matrix, train_matrix, valid_data, test_data = load_data()
+    best_lamb, max_accuracy = 0, 0
+    for lamb in lamb_list:
+        print(f"lambda: {lamb}")
+        train_model = AutoEncoder(train_matrix.shape[1], k)
+        acc_list, _ = train(train_model, lr, lamb, train_matrix, zero_train_matrix, valid_data,
+                            max_epochs)
+        if acc_list[-1] > max_accuracy:
+            max_accuracy = acc_list[-1]
+            best_lamb = lamb
+
+    print(f"Best lambda: {best_lamb}, Best acc: {max_accuracy}")
+    return best_lamb
 
 
 def main():
-    zero_train_matrix, train_matrix, valid_data, test_data = load_data()
-    mod = AutoEncoder(train_matrix.shape[1], 50)
-    train(mod, 0.01, 0.01, train_matrix, zero_train_matrix, valid_data, 200)
+    # tune_hyperparameters(10, [10, 50, 100, 200, 500], [0.1, 0.01, 0.001])
+    tune_lambda(5, 50, 0.01, [0, 0.1, 0.01, 0.001, 0.0001])
+    # zero_train_matrix, train_matrix, valid_data, test_data = load_data()
+    # model = AutoEncoder(train_matrix.shape[1], 50)
+    # train(model, 0.01, 0, train_matrix, zero_train_matrix, valid_data, 100)
 
 
 if __name__ == "__main__":
