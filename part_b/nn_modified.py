@@ -25,6 +25,7 @@ def load_data(base_path="../data"):
     train_matrix = load_train_sparse(base_path).toarray()
     valid_data = load_valid_csv(base_path)
     test_data = load_public_test_csv(base_path)
+    question_meta = load_question_csv(base_path)
 
     zero_train_matrix = train_matrix.copy()
     # Fill in the missing entries to 0.
@@ -33,7 +34,7 @@ def load_data(base_path="../data"):
     zero_train_matrix = torch.FloatTensor(zero_train_matrix)
     train_matrix = torch.FloatTensor(train_matrix)
 
-    return zero_train_matrix, train_matrix, valid_data, test_data
+    return zero_train_matrix, train_matrix, valid_data, test_data, question_meta
 
 
 class AutoEncoder(nn.Module):
@@ -189,7 +190,7 @@ def get_best_epoch(model, lr, train_matrix, zero_train_matrix, valid_data, ub_ep
 
 
 def main():
-    zero_train_matrix, train_matrix, valid_data, test_data = load_data()
+    zero_train_matrix, train_matrix, valid_data, test_data, question_data = load_data()
 
     # Set model hyperparameters.
     # k_list = [10, 50, 100, 200, 500]
