@@ -75,6 +75,37 @@ class AutoEncoder(nn.Module):
         return x
 
 
+class MultiLayerNN(nn.Module):
+    def __init__(self, input_size, hidden_sizes, output_size=1):
+        """ Initialize the AutoEncoder class.
+        :param input_size: number of questions (1774 for this dataset)
+        :param hidden_sizes: size of each hidden layer (good start is around 25)
+        :param output_size: should always be 1 because we are doing binary classification
+        """
+        super().__init__()
+
+        layer_sizes = [input_size] + hidden_sizes + [output_size]
+
+        self.layers = nn.ModuleList()
+        for i in range(len(layer_sizes) - 1):
+            self.layers.append(nn.Linear(layer_sizes[i], layer_sizes[i + 1]))
+
+    def get_weight_norm(self) -> float:
+        """ Return ||W||^2.
+        :return: float
+        """
+        w_norm = 0
+        for layer in self.layers:
+            w_norm += torch.norm(layer.weight, 2) ** 2
+        return w_norm
+
+    def forward(self, x):
+        for layer in self.layers[:-1]:
+            x = F.relu(layer(x))
+        x = self.layers[-1](x)
+        return x
+
+
 def compute_ce_loss(train_data, target, output, user_id) -> torch.Tensor:
     """ Compute the cross entropy loss for the given inputs.
 
