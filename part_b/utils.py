@@ -3,6 +3,9 @@ from scipy.sparse import load_npz
 import numpy as np
 import csv
 import os
+import ast
+
+NUM_SUBJECTS = 388
 
 
 def _load_csv(path):
@@ -73,11 +76,17 @@ def load_question_csv(root_dir="/data"):
         "subject_id": []
     }
     # Iterate over the row to fill in the data.
+
     with open(path, "r") as csv_file:
         reader = csv.reader(csv_file)
         for row in reader:
             try:
                 data["question_id"].append(int(row[0]))
+                data["subject_id"].append([0 for _ in range(NUM_SUBJECTS)])
+                s = row[1]
+                s_list = ast.literal_eval(s)
+                for i in s_list:
+                    data["subject_id"][-1][i] = 1
                 data["subject_id"].append(int(row[1]))
             except ValueError:
                 # Pass first row.

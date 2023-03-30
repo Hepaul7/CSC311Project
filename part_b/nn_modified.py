@@ -61,9 +61,10 @@ class AutoEncoder(nn.Module):
         h_w_norm = torch.norm(self.h.weight, 2) ** 2
         return g_w_norm + h_w_norm
 
-    def forward(self, inputs) -> torch.Tensor:
+    def forward(self, inputs, subject_ids) -> torch.Tensor:
         """ Forward pass of the AutoEncoder.
 
+        :param subject_ids:
         :param inputs: Tensor of user size (1, num_questions)
         :return: Tensor of user size (1, num_questions)
         """
@@ -189,74 +190,107 @@ def get_best_epoch(model, lr, train_matrix, zero_train_matrix, valid_data, ub_ep
     raise ValueError("No best epoch found.")
 
 
-def main():
+def add_subjects():
+    """
+    For each question that each user has answered. Add all subject vectors together. Then Normalize.
+    Here, question data is type dictionary and has {
+        "question_id": [],
+        "subject_id": []
+    }
+    :return:
+    """
     zero_train_matrix, train_matrix, valid_data, test_data, question_data = load_data()
 
-    # Set model hyperparameters.
-    # k_list = [10, 50, 100, 200, 500]
-    # lr_list = [0.1, 0.01, 0.001, 0.0001, 0.00001]
-    k_list = [50]
-    lr_list = [0.01]
+    user_subjects = {}
 
-    lr_list.reverse()
+    for user_id in range(train_matrix.shape[0]):
+        subject_vector = None
+        for question_id in range(train_matrix.shape[1]):
+            if not np.isnan(train_matrix[user_id][question_id]):
+                q_idx = question_data["question_id"].index(question_id)
+                question_subject_vector = question_data["subject_id"][q_idx]
+                if subject_vector is None:
+                    subject_vector = question_subject_vector
+                else:
+                    for i in range(len(subject_vector)):
+                        subject_vector[i] += question_subject_vector[i]
+        if user_id not in user_subjects:
+            user_subjects[user_id] = subject_vector
+        else:
+            raise ValueError("Duplicate user_id")
+    return user_subjects
 
-    max_epochs = 50
+def main():
+    zero_train_matrix, train_matrix, valid_data, test_data, question_data = load_data()
+    user_subjects = add_subjects()
+    print(user_subjects.keys())
+    print(user_subjects.values())
 
-    best_k = k_list[0]
-    best_lr = lr_list[0]
-    best_epoch = 0
-    max_accuracy = 0
-    for k in k_list:
-        for lr in lr_list:
-            # no regularization term
-            train_model = AutoEncoder(train_matrix.shape[1], k)
-            curr_best_epoch, test_acc = get_best_epoch(train_model, lr,
-                                                       train_matrix, zero_train_matrix,
-                                                       valid_data, max_epochs, 0)
-
-            # test_model = AutoEncoder(train_matrix.shape[1], k)
-            # train(test_model, lr, 0, train_matrix, zero_train_matrix, valid_data, curr_best_epoch)
-            # test_acc = evaluate(test_model, zero_train_matrix, test_data)
-            if test_acc > max_accuracy:
-                max_accuracy = test_acc
-                best_lr = lr
-                best_k = k
-                best_epoch = curr_best_epoch
-
-    print(
-        f"Best k: {best_k}, Best lr: {best_lr}, Best num_epoch: {best_epoch}, Best acc: {max_accuracy}")
-
-    train_model = AutoEncoder(train_matrix.shape[1], best_k)
-    acc, _ = train(train_model, best_lr, 0, train_matrix, zero_train_matrix, valid_data, best_epoch)
-    valid_acc = evaluate(train_model, zero_train_matrix, valid_data)
-    test_acc = evaluate(train_model, zero_train_matrix, test_data)
-    print(f"Final Validation Acc: {valid_acc}, Test acc: {test_acc}")
-    plt.plot([x for x in range(best_epoch)], acc, label='Train')
-    plt.xlabel('Epochs')
-    plt.ylabel('Accuracy')
-    plt.legend()
-    plt.show()
-
-    # lamb = [0.1, 0.01, 0.001, 0.0001, 0.00001]
-    lamb = [0.01]
-    max_accuracy = 0
-    max_lamb = 0
-    for m in lamb:
-        model = AutoEncoder(train_matrix.shape[1], best_k)
-        _, test_acc = get_best_epoch(model, best_lr, train_matrix, zero_train_matrix,
-                                     valid_data, best_epoch, m)
-        if test_acc > max_accuracy:
-            max_accuracy = test_acc
-            max_lamb = m
-
-    print('Best lambda: ', max_lamb)
-
-    model = AutoEncoder(train_matrix.shape[1], best_k)
-    train(model, best_lr, max_lamb, train_matrix, zero_train_matrix, valid_data, best_epoch)
-    valid_acc = evaluate(model, zero_train_matrix, valid_data)
-    test_acc = evaluate(model, zero_train_matrix, test_data)
-    print(f"best_lambda: {max_lamb}, Valid acc: {valid_acc}, Test acc: {test_acc}")
-
+    # # Set model hyperparameters.
+    # # k_list = [10, 50, 100, 200, 500]
+    # # lr_list = [0.1, 0.01, 0.001, 0.0001, 0.00001]
+    # k_list = [50]
+    # lr_list = [0.01]
+    #
+    # lr_list.reverse()
+    #
+    # max_epochs = 50
+    #
+    # best_k = k_list[0]
+    # best_lr = lr_list[0]
+    # best_epoch = 0
+    # max_accuracy = 0
+    # for k in k_list:
+    #     for lr in lr_list:
+    #         # no regularization term
+    #         train_model = AutoEncoder(train_matrix.shape[1], k)
+    #         curr_best_epoch, test_acc = get_best_epoch(train_model, lr,
+    #                                                    train_matrix, zero_train_matrix,
+    #                                                    valid_data, max_epochs, 0)
+    #
+    #         # test_model = AutoEncoder(train_matrix.shape[1], k)
+    #         # train(test_model, lr, 0, train_matrix, zero_train_matrix, valid_data, curr_best_epoch)
+    #         # test_acc = evaluate(test_model, zero_train_matrix, test_data)
+    #         if test_acc > max_accuracy:
+    #             max_accuracy = test_acc
+    #             best_lr = lr
+    #             best_k = k
+    #             best_epoch = curr_best_epoch
+    #
+    # print(
+    #     f"Best k: {best_k}, Best lr: {best_lr}, Best num_epoch: {best_epoch}, Best acc: {max_accuracy}")
+    #
+    # train_model = AutoEncoder(train_matrix.shape[1], best_k)
+    # acc, _ = train(train_model, best_lr, 0, train_matrix, zero_train_matrix, valid_data, best_epoch)
+    # valid_acc = evaluate(train_model, zero_train_matrix, valid_data)
+    # test_acc = evaluate(train_model, zero_train_matrix, test_data)
+    # print(f"Final Validation Acc: {valid_acc}, Test acc: {test_acc}")
+    # plt.plot([x for x in range(best_epoch)], acc, label='Train')
+    # plt.xlabel('Epochs')
+    # plt.ylabel('Accuracy')
+    # plt.legend()
+    # plt.show()
+    #
+    # # lamb = [0.1, 0.01, 0.001, 0.0001, 0.00001]
+    # lamb = [0.01]
+    # max_accuracy = 0
+    # max_lamb = 0
+    # for m in lamb:
+    #     model = AutoEncoder(train_matrix.shape[1], best_k)
+    #     _, test_acc = get_best_epoch(model, best_lr, train_matrix, zero_train_matrix,
+    #                                  valid_data, best_epoch, m)
+    #     if test_acc > max_accuracy:
+    #         max_accuracy = test_acc
+    #         max_lamb = m
+    #
+    # print('Best lambda: ', max_lamb)
+    #
+    # model = AutoEncoder(train_matrix.shape[1], best_k)
+    # train(model, best_lr, max_lamb, train_matrix, zero_train_matrix, valid_data, best_epoch)
+    # valid_acc = evaluate(model, zero_train_matrix, valid_data)
+    # test_acc = evaluate(model, zero_train_matrix, test_data)
+    # print(f"best_lambda: {max_lamb}, Valid acc: {valid_acc}, Test acc: {test_acc}")
+    #
 
 if __name__ == "__main__":
     main()
