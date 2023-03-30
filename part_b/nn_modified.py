@@ -45,12 +45,12 @@ class AutoEncoder(nn.Module):
     def __init__(self, num_questions: int, k: int) -> None:
         """ Initialize the AutoEncoder class.
         :param num_questions: number of questions (1774 for this dataset)
+        :param num_subjects: number of subjects (e.g., 388)
         :param k: latent dimension
         """
         super(AutoEncoder, self).__init__()
-        # here are the linear functions for the autoencoder
-        self.g = nn.Linear(num_questions, k)  # W1 \in R^{n_questions x k}
-        self.h = nn.Linear(k, num_questions)  # W2 \in R^{k x n_questions}
+        self.g = nn.Linear(num_questions + NUM_SUBJECTS, k)
+        self.h = nn.Linear(k, num_questions + NUM_SUBJECTS)
         self.k = k
 
     def get_weight_norm(self) -> float:
@@ -61,17 +61,18 @@ class AutoEncoder(nn.Module):
         h_w_norm = torch.norm(self.h.weight, 2) ** 2
         return g_w_norm + h_w_norm
 
-    def forward(self, inputs, subject_ids) -> torch.Tensor:
+    def forward(self, inputs) -> torch.Tensor:
         """ Forward pass of the AutoEncoder.
 
-        :param subject_ids:
         :param inputs: Tensor of user size (1, num_questions)
         :return: Tensor of user size (1, num_questions)
         """
+
         x = self.g(inputs)
         x = F.sigmoid(x)
         x = self.h(x)
         x = F.sigmoid(x)
+        # print(x)
         return x
 
 
@@ -115,25 +116,23 @@ def compute_ce_loss(train_data, target, output, user_id) -> torch.Tensor:
     :param train_data:
     :return: float
     """
+    # print(output.shape)
+    # print(target.shape)
+    output = output[:, :1774]
+    target = target[:, :1774]
+
     nan_mask = np.isnan(train_data[user_id].unsqueeze(0).numpy())
     target[0][nan_mask] = output[0][nan_mask]
 
     # Create a boolean mask of valid entries.
     valid_mask = ~torch.isnan(train_data[user_id])
-
-    # print(valid_mask)
-    # print(output[0])
-    # print(1)
-    # print(output[0])
-    # print(output[0][valid_mask])
-
     # Compute the binary cross entropy only for valid entries.
     ce = F.binary_cross_entropy(output[0][valid_mask], target[0][valid_mask],
                                 reduction='sum')
     return ce
 
 
-def evaluate(model, train_data, valid_data):
+def evaluate(model, train_data, valid_data, subject_vecs):
     """ Evaluate the valid_data on the current model.
 
     :param model: Module
@@ -149,7 +148,13 @@ def evaluate(model, train_data, valid_data):
     correct = 0
 
     for i, u in enumerate(valid_data["user_id"]):
-        inputs = Variable(train_data[u]).unsqueeze(0)
+
+        inputs = Variable(train_data[u]).unsqueeze(0)  # 1 x 1774
+        # subject = Variable(subject_vecs[u]).unsqueeze(0)  # 1 x 388
+
+        # inputs = torch.cat([inputs, subject], dim=1)  # 1 x 2162
+        inputs = concat_input(inputs, subject_vecs, u)
+
         output = model(inputs)
 
         guess = output[0][valid_data["question_id"][i]].item() >= 0.5
@@ -159,7 +164,7 @@ def evaluate(model, train_data, valid_data):
     return correct / float(total)
 
 
-def train(model, lr, lamb, train_data, zero_train_data, valid_data, num_epoch):
+def train(model, lr, lamb, train_data, zero_train_data, valid_data, num_epoch, subject_vecs):
     """ Train the neural network, where the objective also includes
     a regularizer.
 
@@ -181,27 +186,53 @@ def train(model, lr, lamb, train_data, zero_train_data, valid_data, num_epoch):
     for epoch in range(0, num_epoch):
         train_loss = 0.
 
+        # print(num_student)
         for user_id in range(num_student):
-            inputs = Variable(zero_train_data[user_id]).unsqueeze(0)
-            target = inputs.clone()
+            # print(user_id)
+            inputs = Variable(zero_train_data[user_id]).unsqueeze(0)  # 1 x 1774
+            # subject = Variable(subject_vecs[user_id]).unsqueeze(0)  # 1 x 388
+
+            # inputs = torch.cat([inputs, subject], dim=1)            # 1 x 2162
+            inputs = concat_input(inputs, subject_vecs, user_id)
+            target = inputs.clone()                                 # 1 x 2162
 
             optimizer.zero_grad()
+
+            # print("HEY")
             output = model(inputs)
+
+            # print(output)
 
             # compute cross entropy loss
             ce = compute_ce_loss(train_data, target, output, user_id)
             loss = ce + (lamb / 2) * torch.norm(model.get_weight_norm())
+            # loss = F.binary_cross_entropy(output, target, reduction='sum')
             loss.backward()
 
             train_loss += loss.item()
             optimizer.step()
 
-        valid_acc = evaluate(model, zero_train_data, valid_data)
+        # print("DONE WITH LOOP")
+        valid_acc = evaluate(model, zero_train_data, valid_data, subject_vecs)
+        # print("WTF")
         print("Epoch: {} \tTraining Cost: {:.6f}\t "
               "Valid Acc: {}".format(epoch, train_loss, valid_acc))
         acc_lst.append(valid_acc)
         epoch_lst.append(epoch)
     return acc_lst, epoch_lst
+
+
+def concat_input(inputs, subject_dict, user_id):
+    """ Concatenate the subject vectors to the train_data with matching question_id.
+    """
+    if user_id not in subject_dict:
+        raise ValueError("User id not found in subject_dict.")
+
+    subject_vec = subject_dict[user_id].unsqueeze(0)
+    # print(subject_vec.shape)
+    # print(inputs.shape)
+    inputs = torch.cat([inputs, subject_vec], dim=1)
+    return inputs
 
 
 def get_best_epoch(model, lr, train_matrix, zero_train_matrix, valid_data, ub_epochs, m):
@@ -240,23 +271,34 @@ def add_subjects():
             if not np.isnan(train_matrix[user_id][question_id]):
                 q_idx = question_data["question_id"].index(question_id)
                 question_subject_vector = question_data["subject_id"][q_idx]
+
                 if subject_vector is None:
-                    subject_vector = question_subject_vector
+                    subject_vector = [0] * len(question_subject_vector)
                 else:
                     for i in range(len(subject_vector)):
-                        subject_vector[i] += question_subject_vector[i]
+                        subject_vector[i] += 1 if question_subject_vector[i] == 1 else 0
         if user_id not in user_subjects:
             user_subjects[user_id] = subject_vector
         else:
             raise ValueError("Duplicate user_id")
+
+    for user_id in range(train_matrix.shape[0]):
+        # convert list to tensor
+        user_subjects[user_id] = torch.tensor(user_subjects[user_id])
     return user_subjects
+
 
 def main():
     zero_train_matrix, train_matrix, valid_data, test_data, question_data = load_data()
     user_subjects = add_subjects()
-    print(user_subjects.keys())
-    print(user_subjects.values())
-
+    # print(user_subjects[1].shape)
+    # print(user_subjects)
+    # Transpose the tensor to get a tensor of shape (N, 2)
+    model = AutoEncoder(train_matrix.shape[1], 50)
+    train(model, 0.01, 0, train_matrix, zero_train_matrix, valid_data, 50, user_subjects)
+    # print(user_subjects.keys())
+    # print(user_subjects.values())
+    #
     # # Set model hyperparameters.
     # # k_list = [10, 50, 100, 200, 500]
     # # lr_list = [0.1, 0.01, 0.001, 0.0001, 0.00001]
@@ -321,7 +363,8 @@ def main():
     # valid_acc = evaluate(model, zero_train_matrix, valid_data)
     # test_acc = evaluate(model, zero_train_matrix, test_data)
     # print(f"best_lambda: {max_lamb}, Valid acc: {valid_acc}, Test acc: {test_acc}")
-    #
+
+
 
 if __name__ == "__main__":
     main()
