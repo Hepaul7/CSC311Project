@@ -360,7 +360,7 @@ def tune_lambda(best_k, best_lr, best_epoch, train_matrix, zero_train_matrix, va
                             best_epoch, user_subjects)
         acc = evaluate(model, zero_train_matrix, valid_data, user_subjects)
         if acc > max_accuracy:
-            max_accuracy = test_acc
+            max_accuracy = acc
             max_lamb = m
 
     return max_lamb
