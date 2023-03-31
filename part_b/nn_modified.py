@@ -78,35 +78,36 @@ class AutoEncoder(nn.Module):
         return x
 
 
-class MultiLayerNN(nn.Module):
-    def __init__(self, input_size, hidden_sizes, output_size=1):
-        """ Initialize the AutoEncoder class.
-        :param input_size: number of questions (1774 for this dataset)
-        :param hidden_sizes: size of each hidden layer (good start is around 25)
-        :param output_size: should always be 1 because we are doing binary classification
-        """
-        super().__init__()
-
-        layer_sizes = [input_size] + hidden_sizes + [output_size]
-
-        self.layers = nn.ModuleList()
-        for i in range(len(layer_sizes) - 1):
-            self.layers.append(nn.Linear(layer_sizes[i], layer_sizes[i + 1]))
-
-    def get_weight_norm(self) -> float:
-        """ Return ||W||^2.
-        :return: float
-        """
-        w_norm = 0
-        for layer in self.layers:
-            w_norm += torch.norm(layer.weight, 2) ** 2
-        return w_norm
-
-    def forward(self, x):
-        for layer in self.layers[:-1]:
-            x = F.relu(layer(x))
-        x = self.layers[-1](x)
-        return x
+# class MultiLayerNN(nn.Module):
+#     def __init__(self, input_size, hidden_sizes, output_size=1):
+#         """ Initialize the AutoEncoder class.
+#         :param input_size: number of questions (1774 for this dataset)
+#         :param hidden_sizes: size of each hidden layer (good start is around 25)
+#         :param output_size: should always be 1 because we are doing binary classification
+#         """
+#         super().__init__()
+#
+#         layer_sizes = input_size + hidden_sizes + output_size
+#         torch.concat([input_size, hidden_sizes, output_size], dim=1)
+#
+#         self.layers = nn.ModuleList()
+#         for i in range(layer_sizes - 1):
+#             self.layers.append(nn.Linear(layer_sizes[i], layer_sizes[i + 1]))
+#
+#     def get_weight_norm(self) -> float:
+#         """ Return ||W||^2.
+#         :return: float
+#         """
+#         w_norm = 0
+#         for layer in self.layers:
+#             w_norm += torch.norm(layer.weight, 2) ** 2
+#         return w_norm
+#
+#     def forward(self, x):
+#         for layer in self.layers[:-1]:
+#             x = F.relu(layer(x))
+#         x = self.layers[-1](x)
+#         return x
 
 
 def compute_ce_loss(train_data, target, output, user_id) -> torch.Tensor:
@@ -299,6 +300,8 @@ def tune_hyperparameters(k_list: list, lr_list: list, max_epochs: int, train_mat
         for lr in lr_list:
             # no regularization term
             train_model = AutoEncoder(train_matrix.shape[1], k)
+            # print(type(train_matrix))
+            # train_model = MultiLayerNN(train_matrix, 25)
             curr_best_epoch, test_acc = get_best_epoch(train_model, lr,
                                                        train_matrix, zero_train_matrix,
                                                        valid_data, max_epochs, 0, user_subjects)
