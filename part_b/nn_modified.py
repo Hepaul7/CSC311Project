@@ -417,6 +417,8 @@ def main():
                            user_subjects, lamb)
 
     print('Best lambda: ', max_lamb)
+    evaluate_best_lamb(train_matrix, best_lr, max_lamb, best_k, best_epoch, zero_train_matrix,
+                       valid_data, user_subjects, test_data)
 
 
 if __name__ == "__main__":
