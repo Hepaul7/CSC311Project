@@ -7,7 +7,7 @@ import torch.utils.data
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
-NUM_QUESTION = 1774
+NUM_QUESTIONS = 1774
 
 
 def load_data(base_path="../data"):
@@ -118,18 +118,16 @@ def compute_ce_loss(train_data, target, output, user_id) -> torch.Tensor:
     :param train_data: FloatTensor
     :return: float
     """
-    output = output[:, :NUM_QUESTION]
-    target = target[:, :NUM_QUESTION]
+    output = output[:, :NUM_QUESTIONS]
+    target = target[:, :NUM_QUESTIONS]
 
     nan_mask = np.isnan(train_data[user_id].unsqueeze(0).numpy())
     target[0][nan_mask] = output[0][nan_mask]
 
-    # Create a boolean mask of valid entries.
     valid_mask = ~torch.isnan(train_data[user_id])
-    # Compute the binary cross entropy only for valid entries.
     ce = F.binary_cross_entropy(output[0][valid_mask], target[0][valid_mask],
                                 reduction='sum')
-    return ce
+    return ce  # + torch.sum((output - target) ** 2.)
 
 
 def evaluate(model, train_data, valid_data, subject_vecs) -> float:
@@ -404,8 +402,8 @@ def main():
     # k_list = [50]
     # lr_list = [0.01]
     best_k, best_lr, best_epoch, max_accuracy = \
-        tune_hyperparameters(k_list, lr_list, max_epochs, train_matrix, zero_train_matrix, valid_data,
-                             user_subjects)
+        tune_hyperparameters(k_list, lr_list, max_epochs, train_matrix, zero_train_matrix,
+                             valid_data, user_subjects)
 
     print(
         f"Best k: {best_k}, Best lr: {best_lr},"
@@ -414,8 +412,7 @@ def main():
     evaluate_best(train_matrix, best_k, best_lr, best_epoch, zero_train_matrix, valid_data,
                   user_subjects, test_data)
 
-    # lamb = [0.1, 0.01, 0.001, 0.0001, 0.00001]
-    lamb = [0.01]
+    lamb = [0.1, 0.01, 0.001, 0.0001, 0.00001]
     max_lamb = tune_lambda(best_k, best_lr, best_epoch, train_matrix, zero_train_matrix, valid_data,
                            user_subjects, lamb)
 
