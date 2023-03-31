@@ -78,36 +78,56 @@ class AutoEncoder(nn.Module):
         return x
 
 
-# class MultiLayerNN(nn.Module):
-#     def __init__(self, input_size, hidden_sizes, output_size=1):
+# This is the multi-layer version of the AutoEncoder.
+# class AutoEncoder(nn.Module):
+#     """
+#     AutoEncoder class for neural network.
+#     """
+#
+#     def __init__(self, num_questions: int, k: int) -> None:
 #         """ Initialize the AutoEncoder class.
-#         :param input_size: number of questions (1774 for this dataset)
-#         :param hidden_sizes: size of each hidden layer (good start is around 25)
-#         :param output_size: should always be 1 because we are doing binary classification
+#         :param num_questions: number of questions (1774 for this dataset)
+#         :param k: latent dimension
 #         """
-#         super().__init__()
-#
-#         layer_sizes = input_size + hidden_sizes + output_size
-#         torch.concat([input_size, hidden_sizes, output_size], dim=1)
-#
-#         self.layers = nn.ModuleList()
-#         for i in range(layer_sizes - 1):
-#             self.layers.append(nn.Linear(layer_sizes[i], layer_sizes[i + 1]))
+#         super(AutoEncoder, self).__init__()
+#         self.g = nn.Linear(num_questions + NUM_SUBJECTS, 256)
+#         self.h1 = nn.Linear(256, 128)
+#         self.h2 = nn.Linear(128, 64)
+#         self.h3 = nn.Linear(64, k)
+#         self.out = nn.Linear(k, num_questions)
+#         self.k = k
 #
 #     def get_weight_norm(self) -> float:
-#         """ Return ||W||^2.
+#         """ Return ||W^1||^2 + ||W^2||^2.
 #         :return: float
 #         """
-#         w_norm = 0
-#         for layer in self.layers:
-#             w_norm += torch.norm(layer.weight, 2) ** 2
-#         return w_norm
+#         g_w_norm = torch.norm(self.g.weight, 2) ** 2
+#         h1_w_norm = torch.norm(self.h1.weight, 2) ** 2
+#         h2_w_norm = torch.norm(self.h2.weight, 2) ** 2
+#         h3_w_norm = torch.norm(self.h3.weight, 2) ** 2
+#         out_w_norm = torch.norm(self.out.weight, 2) ** 2
+#         return g_w_norm + h1_w_norm + h2_w_norm + h3_w_norm + out_w_norm
 #
-#     def forward(self, x):
-#         for layer in self.layers[:-1]:
-#             x = F.relu(layer(x))
-#         x = self.layers[-1](x)
+#     def forward(self, inputs) -> torch.Tensor:
+#         """ Forward pass of the AutoEncoder.
+#         :param inputs: Tensor of user size (1, num_questions + num_subjects)
+#         :return: Tensor of user size (1, num_questions)
+#         """
+#
+#         x = self.g(inputs)
+#         x = F.relu(x)
+#         x = self.h1(x)
+#         x = F.relu(x)
+#         x = self.h2(x)
+#         x = F.relu(x)
+#         x = self.h3(x)
+#         x = F.relu(x)
+#         x = self.out(x)
+#         x = F.sigmoid(x)
+#         # x = x[:, :1774]  # extract only the first num_questions elements
+#         # print(x)
 #         return x
+
 
 
 def compute_ce_loss(train_data, target, output, user_id) -> torch.Tensor:
