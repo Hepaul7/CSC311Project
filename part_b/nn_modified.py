@@ -7,6 +7,7 @@ import torch.utils.data
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
+NUM_QUESTION = 1774
 
 
 def load_data(base_path="../data"):
@@ -21,6 +22,7 @@ def load_data(base_path="../data"):
         user_id: list, is_correct: list}
         test_data: A dictionary {user_id: list,
         user_id: list, is_correct: list}
+        question_meta: A dictionary {question_id: list, subject_id: list}
     """
     train_matrix = load_train_sparse(base_path).toarray()
     valid_data = load_valid_csv(base_path)
@@ -45,12 +47,11 @@ class AutoEncoder(nn.Module):
     def __init__(self, num_questions: int, k: int) -> None:
         """ Initialize the AutoEncoder class.
         :param num_questions: number of questions (1774 for this dataset)
-        :param num_subjects: number of subjects (e.g., 388)
         :param k: latent dimension
         """
         super(AutoEncoder, self).__init__()
         self.g = nn.Linear(num_questions + NUM_SUBJECTS, k)
-        self.h = nn.Linear(k, num_questions + NUM_SUBJECTS)
+        self.h = nn.Linear(k, num_questions)
         self.k = k
 
     def get_weight_norm(self) -> float:
@@ -64,7 +65,7 @@ class AutoEncoder(nn.Module):
     def forward(self, inputs) -> torch.Tensor:
         """ Forward pass of the AutoEncoder.
 
-        :param inputs: Tensor of user size (1, num_questions)
+        :param inputs: Tensor of user size (1, num_questions + num_subjects)
         :return: Tensor of user size (1, num_questions)
         """
 
@@ -72,6 +73,7 @@ class AutoEncoder(nn.Module):
         x = F.sigmoid(x)
         x = self.h(x)
         x = F.sigmoid(x)
+        # x = x[:, :1774]  # extract only the first num_questions elements
         # print(x)
         return x
 
@@ -110,16 +112,14 @@ class MultiLayerNN(nn.Module):
 def compute_ce_loss(train_data, target, output, user_id) -> torch.Tensor:
     """ Compute the cross entropy loss for the given inputs.
 
-    :param user_id:
-    :param output:
-    :param target:
-    :param train_data:
+    :param user_id: int
+    :param output: FloatTensor
+    :param target: FloatTensor
+    :param train_data: FloatTensor
     :return: float
     """
-    # print(output.shape)
-    # print(target.shape)
-    output = output[:, :1774]
-    target = target[:, :1774]
+    output = output[:, :NUM_QUESTION]
+    target = target[:, :NUM_QUESTION]
 
     nan_mask = np.isnan(train_data[user_id].unsqueeze(0).numpy())
     target[0][nan_mask] = output[0][nan_mask]
@@ -132,7 +132,7 @@ def compute_ce_loss(train_data, target, output, user_id) -> torch.Tensor:
     return ce
 
 
-def evaluate(model, train_data, valid_data, subject_vecs):
+def evaluate(model, train_data, valid_data, subject_vecs) -> float:
     """ Evaluate the valid_data on the current model.
 
     :param model: Module
@@ -150,9 +150,6 @@ def evaluate(model, train_data, valid_data, subject_vecs):
     for i, u in enumerate(valid_data["user_id"]):
 
         inputs = Variable(train_data[u]).unsqueeze(0)  # 1 x 1774
-        # subject = Variable(subject_vecs[u]).unsqueeze(0)  # 1 x 388
-
-        # inputs = torch.cat([inputs, subject], dim=1)  # 1 x 2162
         inputs = concat_input(inputs, subject_vecs, u)
 
         output = model(inputs)
@@ -168,13 +165,14 @@ def train(model, lr, lamb, train_data, zero_train_data, valid_data, num_epoch, s
     """ Train the neural network, where the objective also includes
     a regularizer.
 
-    :param model: Module
-    :param lr: float
-    :param lamb: float
-    :param train_data: 2D FloatTensor
-    :param zero_train_data: 2D FloatTensor
-    :param valid_data: Dict
-    :param num_epoch: int
+    :param subject_vecs: Dictionary {subject_id: vector}
+    :param model: Module (AutoEncoder or MultiLayerNN)
+    :param lr: float (learning rate)
+    :param lamb: float (regularization parameter)
+    :param train_data: 2D FloatTensor (user x question)
+    :param zero_train_data: 2D FloatTensor (user x question)
+    :param valid_data: Validation Data
+    :param num_epoch: int (number of epochs)
     :return: None
     """
     model.train()  # Tell PyTorch you are training the model.
@@ -190,31 +188,18 @@ def train(model, lr, lamb, train_data, zero_train_data, valid_data, num_epoch, s
         for user_id in range(num_student):
             # print(user_id)
             inputs = Variable(zero_train_data[user_id]).unsqueeze(0)  # 1 x 1774
-            # subject = Variable(subject_vecs[user_id]).unsqueeze(0)  # 1 x 388
-
-            # inputs = torch.cat([inputs, subject], dim=1)            # 1 x 2162
-            inputs = concat_input(inputs, subject_vecs, user_id)
-            target = inputs.clone()                                 # 1 x 2162
-
+            inputs = concat_input(inputs, subject_vecs, user_id)  # 1 x 2162
+            target = inputs.clone()  # 1 x 2162
             optimizer.zero_grad()
-
-            # print("HEY")
-            output = model(inputs)
-
-            # print(output)
-
+            output = model(inputs)  # 1 x 2162
             # compute cross entropy loss
             ce = compute_ce_loss(train_data, target, output, user_id)
             loss = ce + (lamb / 2) * torch.norm(model.get_weight_norm())
             # loss = F.binary_cross_entropy(output, target, reduction='sum')
             loss.backward()
-
             train_loss += loss.item()
             optimizer.step()
-
-        # print("DONE WITH LOOP")
         valid_acc = evaluate(model, zero_train_data, valid_data, subject_vecs)
-        # print("WTF")
         print("Epoch: {} \tTraining Cost: {:.6f}\t "
               "Valid Acc: {}".format(epoch, train_loss, valid_acc))
         acc_lst.append(valid_acc)
@@ -222,23 +207,36 @@ def train(model, lr, lamb, train_data, zero_train_data, valid_data, num_epoch, s
     return acc_lst, epoch_lst
 
 
-def concat_input(inputs, subject_dict, user_id):
+def concat_input(inputs, subject_dict, user_id) -> torch.Tensor:
     """ Concatenate the subject vectors to the train_data with matching question_id.
+    :param user_id:
+    :param inputs: FloatTensor
+    :param subject_dict: Dict
+    :return: FloatTensor
     """
     if user_id not in subject_dict:
         raise ValueError("User id not found in subject_dict.")
 
     subject_vec = subject_dict[user_id].unsqueeze(0)
-    # print(subject_vec.shape)
-    # print(inputs.shape)
     inputs = torch.cat([inputs, subject_vec], dim=1)
     return inputs
 
 
-def get_best_epoch(model, lr, train_matrix, zero_train_matrix, valid_data, ub_epochs, m):
-    """ Find the best epoch for the model. """
+def get_best_epoch(model, lr, train_matrix, zero_train_matrix, valid_data, ub_epochs, m,
+                   user_subject):
+    """ Find the best epoch for the model.
+    :param user_subject: Dictionary of each user and their subject vector
+    :param m: float of regularization parameter
+    :param ub_epochs: int, upper bound of epochs
+    :param model: Module type AutoEncoder
+    :param lr: float learning rate
+    :param train_matrix: FloatTensor
+    :param zero_train_matrix: FloatTensor
+    :param valid_data: Dict of validation data
+    :return: int of best epoch, float of validation accuracy
+    """
     valid_acc, epoch_list = train(model, lr, m, train_matrix, zero_train_matrix, valid_data,
-                                  ub_epochs)
+                                  ub_epochs, user_subject)
 
     plt.plot(epoch_list, valid_acc)
     plt.xlabel("Epoch")
@@ -254,12 +252,12 @@ def get_best_epoch(model, lr, train_matrix, zero_train_matrix, valid_data, ub_ep
 
 def add_subjects():
     """
-    For each question that each user has answered. Add all subject vectors together. Then Normalize.
+    For each question that each user has answered correctly. Add all subject vectors together.
     Here, question data is type dictionary and has {
         "question_id": [],
         "subject_id": []
     }
-    :return:
+    :return: A dictionary that maps each user to all the subjects they have answered correctly.
     """
     zero_train_matrix, train_matrix, valid_data, test_data, question_data = load_data()
 
@@ -288,82 +286,140 @@ def add_subjects():
     return user_subjects
 
 
+def tune_hyperparameters(k_list: list, lr_list: list, max_epochs: int, train_matrix: torch.Tensor,
+                         zero_train_matrix: torch.tensor, valid_data: torch.Tensor,
+                         user_subjects: dict):
+    """
+    Tune the hyperparameters for the model. Here, we only tune k, lr and epochs.
+    :return:
+    """
+    best_k = k_list[0]
+    best_lr = lr_list[0]
+    best_epoch = 0
+    max_accuracy = 0
+    for k in k_list:
+        for lr in lr_list:
+            # no regularization term
+            train_model = AutoEncoder(train_matrix.shape[1], k)
+            curr_best_epoch, test_acc = get_best_epoch(train_model, lr,
+                                                       train_matrix, zero_train_matrix,
+                                                       valid_data, max_epochs, 0, user_subjects)
+            if test_acc > max_accuracy:
+                max_accuracy = test_acc
+                best_lr = lr
+                best_k = k
+                best_epoch = curr_best_epoch
+
+    return best_k, best_lr, best_epoch, max_accuracy
+
+
+def evaluate_best(train_matrix, best_k, best_lr, best_epoch, zero_train_matrix, valid_data,
+                  user_subjects, test_data):
+    """
+    Evaluate the best model.
+    :param train_matrix: The train matrix type torch.Tensor
+    :param best_k: the Best K we tuned type int
+    :param best_lr: The best learning rate we tuned type float
+    :param best_epoch: The best epoch we tuned type int
+    :param zero_train_matrix: The train matrix with all the NaN replaced with 0 type torch.Tensor
+    :param valid_data: The validation data type torch.Tensor
+    :param user_subjects: The user subjects, here it is a dictionary that maps each user
+    :param test_data: The test data type torch.Tensor
+    :return: None, but prints and shows the plot
+    """
+    train_model = AutoEncoder(train_matrix.shape[1], best_k)
+    acc, _ = train(train_model, best_lr, 0, train_matrix, zero_train_matrix, valid_data, best_epoch,
+                   user_subjects)
+    valid_acc = evaluate(train_model, zero_train_matrix, valid_data, user_subjects)
+    test_acc = evaluate(train_model, zero_train_matrix, test_data, user_subjects)
+    print(f"Final Validation Acc: {valid_acc}, Test acc: {test_acc}")
+    plt.plot([x for x in range(best_epoch)], acc, label='Train')
+    plt.xlabel('Epochs')
+    plt.ylabel('Accuracy')
+    plt.legend()
+    plt.show()
+
+
+def tune_lambda(best_k, best_lr, best_epoch, train_matrix, zero_train_matrix, valid_data,
+                user_subjects, lamb):
+    """
+    Tune the regularization term lambda.
+    :param lamb: List of lambdas to try.
+    :param best_k: Best k value.
+    :param best_lr: Best learning rate.
+    :param best_epoch: Best epoch.
+    :param train_matrix: Training matrix.
+    :param zero_train_matrix: Training matrix with all the correct answers.
+    :param valid_data: Validation data.
+    :param user_subjects: User subjects.
+    :return: Best lambda.
+    """
+    max_accuracy = 0
+    max_lamb = 0
+    for m in lamb:
+        model = AutoEncoder(train_matrix.shape[1], best_k)
+        _, test_acc = train(model, best_lr, m, train_matrix, zero_train_matrix, valid_data,
+                            best_epoch, user_subjects)
+        acc = evaluate(model, zero_train_matrix, valid_data, user_subjects)
+        if acc > max_accuracy:
+            max_accuracy = test_acc
+            max_lamb = m
+
+    return max_lamb
+
+
+def evaluate_best_lamb(train_matrix, best_lr, max_lamb, best_k, best_epoch, zero_train_matrix,
+                       valid_data, user_subjects, test_data):
+    """
+    Evaluate the best model with the best lambda.
+    :param train_matrix: The train matrix type torch.Tensor
+    :param best_lr: The best learning rate we tuned type float
+    :param max_lamb: The best lambda we tuned type float
+    :param best_k: the Best K we tuned type int
+    :param best_epoch: The best epoch we tuned type int
+    :param zero_train_matrix: The train matrix with all the NaN replaced with 0 type torch.Tensor
+    :param valid_data: The validation data type torch.Tensor
+    :param user_subjects: The user subjects, here it is a dictionary that maps each user
+    :param test_data: The test data type torch.Tensor
+    :return: None, but prints max_lamb and test_acc
+    """
+    model = AutoEncoder(train_matrix.shape[1], best_k)
+    train(model, best_lr, max_lamb, train_matrix, zero_train_matrix, valid_data, best_epoch,
+          user_subjects)
+    valid_acc = evaluate(model, zero_train_matrix, valid_data, user_subjects)
+    test_acc = evaluate(model, zero_train_matrix, test_data, user_subjects)
+    print(f"best_lambda: {max_lamb}, Valid acc: {valid_acc}, Test acc: {test_acc}")
+
+
 def main():
+    """
+    Main function.
+    """
     zero_train_matrix, train_matrix, valid_data, test_data, question_data = load_data()
     user_subjects = add_subjects()
-    # print(user_subjects[1].shape)
-    # print(user_subjects)
-    # Transpose the tensor to get a tensor of shape (N, 2)
-    model = AutoEncoder(train_matrix.shape[1], 50)
-    train(model, 0.01, 0, train_matrix, zero_train_matrix, valid_data, 50, user_subjects)
-    # print(user_subjects.keys())
-    # print(user_subjects.values())
-    #
-    # # Set model hyperparameters.
-    # # k_list = [10, 50, 100, 200, 500]
-    # # lr_list = [0.1, 0.01, 0.001, 0.0001, 0.00001]
+
+    k_list = [10, 50, 100, 200, 500]
+    lr_list = [0.1, 0.01, 0.001, 0.0001, 0.00001]
+    max_epochs = 50
     # k_list = [50]
     # lr_list = [0.01]
-    #
-    # lr_list.reverse()
-    #
-    # max_epochs = 50
-    #
-    # best_k = k_list[0]
-    # best_lr = lr_list[0]
-    # best_epoch = 0
-    # max_accuracy = 0
-    # for k in k_list:
-    #     for lr in lr_list:
-    #         # no regularization term
-    #         train_model = AutoEncoder(train_matrix.shape[1], k)
-    #         curr_best_epoch, test_acc = get_best_epoch(train_model, lr,
-    #                                                    train_matrix, zero_train_matrix,
-    #                                                    valid_data, max_epochs, 0)
-    #
-    #         # test_model = AutoEncoder(train_matrix.shape[1], k)
-    #         # train(test_model, lr, 0, train_matrix, zero_train_matrix, valid_data, curr_best_epoch)
-    #         # test_acc = evaluate(test_model, zero_train_matrix, test_data)
-    #         if test_acc > max_accuracy:
-    #             max_accuracy = test_acc
-    #             best_lr = lr
-    #             best_k = k
-    #             best_epoch = curr_best_epoch
-    #
-    # print(
-    #     f"Best k: {best_k}, Best lr: {best_lr}, Best num_epoch: {best_epoch}, Best acc: {max_accuracy}")
-    #
-    # train_model = AutoEncoder(train_matrix.shape[1], best_k)
-    # acc, _ = train(train_model, best_lr, 0, train_matrix, zero_train_matrix, valid_data, best_epoch)
-    # valid_acc = evaluate(train_model, zero_train_matrix, valid_data)
-    # test_acc = evaluate(train_model, zero_train_matrix, test_data)
-    # print(f"Final Validation Acc: {valid_acc}, Test acc: {test_acc}")
-    # plt.plot([x for x in range(best_epoch)], acc, label='Train')
-    # plt.xlabel('Epochs')
-    # plt.ylabel('Accuracy')
-    # plt.legend()
-    # plt.show()
-    #
-    # # lamb = [0.1, 0.01, 0.001, 0.0001, 0.00001]
-    # lamb = [0.01]
-    # max_accuracy = 0
-    # max_lamb = 0
-    # for m in lamb:
-    #     model = AutoEncoder(train_matrix.shape[1], best_k)
-    #     _, test_acc = get_best_epoch(model, best_lr, train_matrix, zero_train_matrix,
-    #                                  valid_data, best_epoch, m)
-    #     if test_acc > max_accuracy:
-    #         max_accuracy = test_acc
-    #         max_lamb = m
-    #
-    # print('Best lambda: ', max_lamb)
-    #
-    # model = AutoEncoder(train_matrix.shape[1], best_k)
-    # train(model, best_lr, max_lamb, train_matrix, zero_train_matrix, valid_data, best_epoch)
-    # valid_acc = evaluate(model, zero_train_matrix, valid_data)
-    # test_acc = evaluate(model, zero_train_matrix, test_data)
-    # print(f"best_lambda: {max_lamb}, Valid acc: {valid_acc}, Test acc: {test_acc}")
+    best_k, best_lr, best_epoch, max_accuracy = \
+        tune_hyperparameters(k_list, lr_list, max_epochs, train_matrix, zero_train_matrix, valid_data,
+                             user_subjects)
 
+    print(
+        f"Best k: {best_k}, Best lr: {best_lr},"
+        f" "f"Best num_epoch: {best_epoch}, Best acc: {max_accuracy}")
+
+    evaluate_best(train_matrix, best_k, best_lr, best_epoch, zero_train_matrix, valid_data,
+                  user_subjects, test_data)
+
+    # lamb = [0.1, 0.01, 0.001, 0.0001, 0.00001]
+    lamb = [0.01]
+    max_lamb = tune_lambda(best_k, best_lr, best_epoch, train_matrix, zero_train_matrix, valid_data,
+                           user_subjects, lamb)
+
+    print('Best lambda: ', max_lamb)
 
 
 if __name__ == "__main__":

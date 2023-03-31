@@ -65,7 +65,13 @@ def load_train_csv(root_dir="/data"):
 
 
 def load_question_csv(root_dir="/data"):
-    """ Load the subject data as a dictionary."""
+    """ Load the subject data as a dictionary.
+    :param root_dir: str
+    :return: A dictionary {question_id: list, subject_id: list}
+        WHERE
+        question_id: a list of question id.
+        subject_id: a list of subject id.
+    """
     path = os.path.join(root_dir, "question_meta.csv")
     if not os.path.exists(path):
         raise Exception("The specified path {} "
