@@ -50,8 +50,11 @@ class AutoEncoder(nn.Module):
         :param k: latent dimension
         """
         super(AutoEncoder, self).__init__()
-        self.g = nn.Linear(num_questions + NUM_SUBJECTS, k)
-        self.h = nn.Linear(k, num_questions)
+        self.g = nn.Linear(num_questions + NUM_SUBJECTS, 256)
+        self.h1 = nn.Linear(256, 128)
+        self.h2 = nn.Linear(128, 64)
+        self.h3 = nn.Linear(64, k)
+        self.out = nn.Linear(k, num_questions)
         self.k = k
 
     def get_weight_norm(self) -> float:
@@ -59,8 +62,11 @@ class AutoEncoder(nn.Module):
         :return: float
         """
         g_w_norm = torch.norm(self.g.weight, 2) ** 2
-        h_w_norm = torch.norm(self.h.weight, 2) ** 2
-        return g_w_norm + h_w_norm
+        h1_w_norm = torch.norm(self.h1.weight, 2) ** 2
+        h2_w_norm = torch.norm(self.h2.weight, 2) ** 2
+        h3_w_norm = torch.norm(self.h3.weight, 2) ** 2
+        out_w_norm = torch.norm(self.out.weight, 2) ** 2
+        return g_w_norm + h1_w_norm + h2_w_norm + h3_w_norm + out_w_norm
 
     def forward(self, inputs) -> torch.Tensor:
         """ Forward pass of the AutoEncoder.
@@ -70,13 +76,18 @@ class AutoEncoder(nn.Module):
         """
 
         x = self.g(inputs)
-        x = F.sigmoid(x)
-        x = self.h(x)
+        x = F.relu(x)
+        x = self.h1(x)
+        x = F.relu(x)
+        x = self.h2(x)
+        x = F.relu(x)
+        x = self.h3(x)
+        x = F.relu(x)
+        x = self.out(x)
         x = F.sigmoid(x)
         # x = x[:, :1774]  # extract only the first num_questions elements
         # print(x)
         return x
-
 
 # class MultiLayerNN(nn.Module):
 #     def __init__(self, input_size, hidden_sizes, output_size=1):
@@ -399,11 +410,11 @@ def main():
     zero_train_matrix, train_matrix, valid_data, test_data, question_data = load_data()
     user_subjects = add_subjects()
 
-    k_list = [10, 50, 100, 200, 500]
-    lr_list = [0.1, 0.01, 0.001, 0.0001, 0.00001]
+    # k_list = [10, 50, 100, 200, 500]
+    # lr_list = [0.1, 0.01, 0.001, 0.0001, 0.00001]
     max_epochs = 50
-    # k_list = [50]
-    # lr_list = [0.01]
+    k_list = [50]
+    lr_list = [0.01]
     best_k, best_lr, best_epoch, max_accuracy = \
         tune_hyperparameters(k_list, lr_list, max_epochs, train_matrix, zero_train_matrix,
                              valid_data, user_subjects)
@@ -415,7 +426,7 @@ def main():
     evaluate_best(train_matrix, best_k, best_lr, best_epoch, zero_train_matrix, valid_data,
                   user_subjects, test_data)
 
-    lamb = [0.1, 0.01, 0.001, 0.0001, 0.00001]
+    lamb = 0
     max_lamb = tune_lambda(best_k, best_lr, best_epoch, train_matrix, zero_train_matrix, valid_data,
                            user_subjects, lamb)
 
